@@ -78,8 +78,13 @@ Tipjar
 
 Help me reach my goal of contributing to all privacy-coin's ongoing development 
 
-XMR: 83NTepxXzoPjSN6cAKaoBvat5mqMWUW2C9RJKeu6kWu8LX5cXMBE2sFR4hedAiUwfzjQwHbEq9tyz148sB2qHqn4DB8tYQQ
-BTC: bc1qvfsqzfz4gud05p7mmgm7kwv6cx7p4k7tcd5sdn
+.. code:: bash
+
+    XMR: 83NTepxXzoPjSN6cAKaoBvat5mqMWUW2C9RJKeu6kWu8LX5cXMBE2sFR4hedAiUwfzjQwHbEq9tyz148sB2qHqn4DB8tYQQ
+
+.. code:: bash
+
+    BTC: bc1qvfsqzfz4gud05p7mmgm7kwv6cx7p4k7tcd5sdn
 
 Disclaimer
 ----------
