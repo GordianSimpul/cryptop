@@ -8,11 +8,11 @@ Built on Python 3 and ncurses with simplicity in mind, cryptop updates in realti
 Changes
 ------------
 
-I've added the ability to add/subtract values from your wallet within the interface. 
-This now requires a CryptoCompare.com API key due to rate limits enforced since the creation of this app.
+Added the ability to add/subtract values from your wallet within the interface. 
 
-Instead of it automatically refreshing, you now press 'F5' to refresh. This will save on your API calls and 
-it really didn't need to be refreshing on an interval. 
+This now requires a CryptoCompare.com API key because of rate limits. See the Credits section.
+
+No longer auto refresh. Press 'F5' to refresh. 
 
 
 Installation
