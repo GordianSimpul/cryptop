@@ -76,7 +76,7 @@ Uses the `cryptocompare.com API
 Tipjar
 ------
 
-Help me reach my goal of contributing to all privacy-coin's ongoing development 
+Help me reach my goal of contributing to the ongoing development of privacy coins
 
 .. code:: bash
 
