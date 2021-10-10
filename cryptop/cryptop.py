@@ -7,16 +7,19 @@ import configparser
 import json
 import pkg_resources
 import locale
-
+from time import sleep
 import requests
 import requests_cache
-
+from curses import KEY_F5
+import argparse
 # GLOBALS!
 BASEDIR = os.path.join(os.path.expanduser('~'), '.cryptop')
 DATAFILE = os.path.join(BASEDIR, 'wallet.json')
 CONFFILE = os.path.join(BASEDIR, 'config.ini')
 CONFIG = configparser.ConfigParser()
 COIN_FORMAT = re.compile('[A-Z]{2,5},\d{0,}\.?\d{0,}')
+CRYPTOP_VERSION = 'cryptop v0.3.0'
+CCOMPARE_API_KEY = ''
 
 SORT_FNS = { 'coin' : lambda item: item[0],
              'price': lambda item: float(item[1][0]),
@@ -38,6 +41,10 @@ KEY_q = 113
 KEY_r = 114
 KEY_s = 115
 KEY_c = 99
+KEY_PLUS = 43
+KEY_MINUS = 45
+KEY_plus = 107
+KEY_minus = 109
 
 def read_configuration(confpath):
     """Read the configuration file at given path."""
@@ -58,13 +65,31 @@ def if_coin(coin, url='https://www.cryptocompare.com/api/data/coinlist/'):
 def get_price(coin, curr=None):
     '''Get the data on coins'''
     curr = curr or CONFIG['api'].get('currency', 'USD')
-    fmt = 'https://min-api.cryptocompare.com/data/pricemultifull?fsyms={}&tsyms={}'
-
+    fmt = 'https://min-api.cryptocompare.com/data/pricemultifull?fsyms={}&tsyms={}&api_key=%s' % CCOMPARE_API_KEY
+    
+    #Get data from KuCoin. Some Coins not Listed, show 0 if null.
+    #USDT is needed since there is no USD pairs
+    #curr = 'USDT' 
+    '''
+    ku_url = "https://api.kucoin.com/api/v1/market/stats?symbol=%s-%s"
+    AllCoinData = []
+    try: 
+        for c in coin.split(','):
+            r = requests.get(ku_url % (c,curr))
+            data = r.json()
+            coin_data = (float(data['data']['averagePrice'] if data['data']['averagePrice'] else 0.0),
+                         float(data['data']['high'] if data['data']['high'] else 0.0),
+                         float(data['data']['low'] if data['data']['low'] else 0.0))
+            AllCoinData.append(coin_data)
+        return AllCoinData
+    except Exception as e:
+        sys.exit(str(e))    
+    '''
     try:
         r = requests.get(fmt.format(coin, curr))
     except requests.exceptions.RequestException:
         sys.exit('Could not complete request')
-
+    
     try:
         data_raw = r.json()['RAW']
         return [(float(data_raw[c][curr]['PRICE']),
@@ -72,6 +97,7 @@ def get_price(coin, curr=None):
                  float(data_raw[c][curr]['LOW24HOUR'])) for c in coin.split(',') if c in data_raw.keys()]
     except:
         sys.exit('Could not parse data')
+    
 
 
 def get_theme_colors():
@@ -120,7 +146,7 @@ def write_scr(stdscr, wallet, y, x):
     third_pad =  ' ' * (CONFIG['theme'].getint('field_length', 13) - 3)
 
     if y >= 1:
-        stdscr.addnstr(0, 0, 'cryptop v0.2.0', x, curses.color_pair(2))
+        stdscr.addnstr(0, 0, CRYPTOP_VERSION, x, curses.color_pair(2))
     if y >= 2:
         header = '  COIN{}PRICE{}HELD {}VAL{}HIGH {}LOW  '.format(first_pad, second_pad, third_pad, first_pad, first_pad)
         stdscr.addnstr(1, 0, header, x, curses.color_pair(3))
@@ -143,12 +169,12 @@ def write_scr(stdscr, wallet, y, x):
                 total += float(held) * val[0]
 
     if y > len(coinl) + 3:
-        stdscr.addnstr(y - 2, 0, 'Total Holdings: {:10}    '
+        stdscr.addnstr(y - 3, 0, 'Total Holdings: {:10}    '
             .format(locale.currency(total, grouping=True)), x, curses.color_pair(3))
-        stdscr.addnstr(y - 1, 0,
-            '[A] Add/update coin [R] Remove coin [S] Sort [C] Cycle sort [0\Q]Exit', x,
+        stdscr.addnstr(y - 2, 0,
+            '[F5]Refresh [A] Add/update coin [R] Remove coin [S] Sort [C] Cycle sort [0\Q]Exit', x,
             curses.color_pair(2))
-
+        stdscr.addnstr(y-1,0, '[+]Add To Coin [-] Subtract From Coin',x,curses.color_pair(2))
 
 def read_wallet():
     ''' Reads the wallet data from its json file '''
@@ -199,6 +225,27 @@ def add_coin(coin_amount, wallet):
     wallet[coin] = amount
     return wallet
 
+def change_value_to_coin(coin_amount, wallet, subtract):
+    coin_amount = coin_amount.upper()
+    if not COIN_FORMAT.match(coin_amount):
+        return wallet
+
+    coin, amount = coin_amount.split(',')
+
+    if not if_coin(coin):
+        return wallet
+
+    if not amount:
+        amount = "0"
+        
+    if subtract:
+        if float(wallet[coin]) >= float(amount):
+            wallet[coin] = float(wallet[coin]) - float(amount)
+        else:
+            wallet[coin] = 0
+    else:
+        wallet[coin] = float(wallet[coin]) + float(amount)
+    return wallet
 
 def remove_coin(coin, wallet):
     ''' Remove a coin and its amount from the wallet '''
@@ -217,18 +264,41 @@ def mainc(stdscr):
     stdscr.clear()
     #stdscr.nodelay(1)
     # while inp != 48 and inp != 27 and inp != 81 and inp != 113:
+    k = 1
     while inp not in {KEY_ZERO, KEY_ESCAPE, KEY_Q, KEY_q}:
-        while True:
+        try:
+            if k == 1:
+                write_scr(stdscr, wallet, y, x)
+                k += 1
+        except curses.error:
+            pass
+        inp = stdscr.getch()
+        #if inp != curses.KEY_RESIZE:
+        #    break
+        y, x = stdscr.getmaxyx()
+        if inp == KEY_F5:
             try:
+                stdscr.erase()
                 write_scr(stdscr, wallet, y, x)
             except curses.error:
                 pass
+        if inp in {KEY_PLUS, KEY_plus}:
+            if y > 2:
+                data = get_string(stdscr,
+                        'Enter in format Symbol,Amount e.g. BTC,10')
+                wallet = change_value_to_coin(data,wallet, False)
+                write_wallet(wallet)
+                stdscr.erase()
+                write_scr(stdscr, wallet, y, x)
 
-            inp = stdscr.getch()
-            if inp != curses.KEY_RESIZE:
-                break
-            stdscr.erase()
-            y, x = stdscr.getmaxyx()
+        if inp in {KEY_MINUS, KEY_minus}:
+            if y > 2:
+                data = get_string(stdscr,
+                        'Enter in format Symbol,Amount e.g. BTC,10')
+                wallet = change_value_to_coin(data,wallet, True)
+                write_wallet(wallet)
+                stdscr.erase()
+                write_scr(stdscr, wallet, y, x)
 
         if inp in {KEY_a, KEY_A}:
             if y > 2:
@@ -266,6 +336,16 @@ def main():
     requests_cache.install_cache(cache_name='api_cache', backend='memory',
         expire_after=int(CONFIG['api'].get('cache', 10)))
 
+    parser = argparse.ArgumentParser(description=CRYPTOP_VERSION)
+    parser.add_argument('-k', '--api-key', default=os.environ.get('CCOMPARE_API_KEY'),help='CryptoCompare API key (OR edit config.ini in ~/.cryptop folder)')
+    CCOMPARE_API_KEY = CONFIG['api'].get('key', '')
+    
+    args = parser.parse_args()
+    if not args.api_key and not CCOMPARE_API_KEY:
+        parser.error('Please specify an API key')
+    elif args.api_key and not CCOMPARE_API_KEY:
+        CCOMPARE_API_KEY = args.api_key
+        
     curses.wrapper(mainc)
 
 
