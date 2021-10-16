@@ -18,7 +18,7 @@ DATAFILE = os.path.join(BASEDIR, 'wallet.json')
 CONFFILE = os.path.join(BASEDIR, 'config.ini')
 CONFIG = configparser.ConfigParser()
 COIN_FORMAT = re.compile('[A-Z]{2,5},\d{0,}\.?\d{0,}')
-CRYPTOP_VERSION = 'cryptop v0.4.0'
+CRYPTOP_VERSION = 'cryptop v0.4.1'
 CCOMPARE_API_KEY = ''
 
 SORT_FNS = { 'coin' : lambda item: item[0],
@@ -186,6 +186,9 @@ def write_scr(stdscr, wallet, y, x):
     if coinl:
         coinvl = get_price(','.join(coinl))
         coinchg = get_change(','.join(coinl))
+    else:
+        coinvl = []
+        coinchg = []
     
     stdscr.erase()
     '''Write text and formatting to screen'''

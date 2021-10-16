@@ -5,7 +5,7 @@ Built on Python 3 and ncurses with simplicity in mind, cryptop updates in realti
 
 .. image:: img\cryptop.png
 
-version 0.4.0
+version 0.4.1
 
 Changes
 ------------
