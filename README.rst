@@ -5,6 +5,8 @@ Built on Python 3 and ncurses with simplicity in mind, cryptop updates in realti
 
 .. image:: img\cryptop.png
 
+version 0.4.0
+
 Changes
 ------------
 
@@ -13,6 +15,8 @@ Added the ability to add/subtract values from your wallet within the interface.
 This now requires a CryptoCompare.com API key because of rate limits. See the Credits section.
 
 No longer auto refresh. Press 'F5' to refresh. 
+
+Horizontal bar graph with portfolio percent. 
 
 
 Installation
@@ -60,10 +64,6 @@ Cryptop creates two config files in a .cryptop folder in your home directory.
 
 .crypto/config.ini contains theme configuration (text/background colors) and
 options to change the output currency (default USD), update frequency, number of decimal places to display and maximum width for float values.
-
-.. image:: img\fall.png
-
-.. image:: img\aesth.png
 
 .cryptop/wallet.json contains the coins and amounts you hold, you shouldn't need to edit it manually
 

@@ -18,7 +18,7 @@ DATAFILE = os.path.join(BASEDIR, 'wallet.json')
 CONFFILE = os.path.join(BASEDIR, 'config.ini')
 CONFIG = configparser.ConfigParser()
 COIN_FORMAT = re.compile('[A-Z]{2,5},\d{0,}\.?\d{0,}')
-CRYPTOP_VERSION = 'cryptop v0.3.0'
+CRYPTOP_VERSION = 'cryptop v0.4.0'
 CCOMPARE_API_KEY = ''
 
 SORT_FNS = { 'coin' : lambda item: item[0],
@@ -28,6 +28,11 @@ SORT_FNS = { 'coin' : lambda item: item[0],
 SORTS = list(SORT_FNS.keys())
 COLUMN = SORTS.index('val')
 ORDER = True
+
+NEGRO = curses.COLOR_BLACK
+
+COLORS = [curses.COLOR_BLUE, curses.COLOR_CYAN, curses.COLOR_GREEN,
+          curses.COLOR_MAGENTA, curses.COLOR_RED, curses.COLOR_WHITE,curses.COLOR_YELLOW]
 
 KEY_ESCAPE = 27
 KEY_ZERO = 48
@@ -98,7 +103,29 @@ def get_price(coin, curr=None):
     except:
         sys.exit('Could not parse data')
     
-
+def get_change(coin, curr="USD"):
+    
+    coin_change_amt = {}
+    # Minute Change
+    cc_change_url = 'https://min-api.cryptocompare.com/data/v2/histominute?fsym=%s&tsym=%s&limit=1440'
+    # Hour Change
+    #cc_change_url = 'https://min-api.cryptocompare.com/data/v2/histohour?fsym=%s&tsym=%s&limit=24'
+    curr = curr or CONFIG['api'].get('currency', 'USD')
+    for c in coin.split(','):
+        try:
+            req = requests.get(cc_change_url % (c, curr))
+        except requests.exceptions.RequestException:
+            sys.exit('Could not complete request')
+        
+        hdata = req.json()
+        open_price = hdata['Data']['Data'][0]['open']
+        now_price = hdata['Data']['Data'][-1]['open']
+        coin_change_amt[c] = round(((float(now_price) - float(open_price)) / float(open_price))*100,2)
+        if coin_change_amt[c] > 0: 
+            coin_change_amt[c] = '+' + str(coin_change_amt[c]) + "%"
+        else:
+            coin_change_amt[c] = str(coin_change_amt[c]) + "%"
+    return coin_change_amt
 
 def get_theme_colors():
     ''' Returns curses colors according to the config'''
@@ -123,40 +150,61 @@ def conf_scr():
     text, banner, banner_text, background = get_theme_colors()
     curses.init_pair(2, text, background)
     curses.init_pair(3, banner_text, banner)
+
+    j = 0
+    for k in range(4,10):        
+        curses.init_pair(k, NEGRO,COLORS[j])
+        j += 1
+        
+    
     curses.halfdelay(10)
 
-def str_formatter(coin, val, held):
+def str_formatter(coin, val, held, change):
     '''Prepare the coin strings as per ini length/decimal place values'''
     max_length = CONFIG['theme'].getint('field_length', 13)
     dec_place = CONFIG['theme'].getint('dec_places', 2)
     avg_length = CONFIG['theme'].getint('dec_places', 2) + 10
     held_str = '{:>{},.8f}'.format(float(held), max_length)
     val_str = '{:>{},.{}f}'.format(float(held) * val[0], max_length, dec_place)
-    return '  {:<5} {:>{}}  {} {:>{}} {:>{}} {:>{}}'.format(coin,
+    return '  {:<5} {:>{}}  {} {:>{}} {:>{}} {:>{}} {:>{}}'.format(coin,
         locale.currency(val[0], grouping=True)[:max_length], avg_length,
         held_str[:max_length],
         locale.currency(float(held) * val[0], grouping=True)[:max_length], avg_length,
         locale.currency(val[1], grouping=True)[:max_length], avg_length,
-        locale.currency(val[2], grouping=True)[:max_length], avg_length)
+        locale.currency(val[2], grouping=True)[:max_length], avg_length,
+        change[:max_length], avg_length)
 
 def write_scr(stdscr, wallet, y, x):
+
+
+    coin_distribution = {}
+    char_distribution = {}
+    charcar = '░'
+    coinl = list(wallet.keys())
+    heldl = list(wallet.values())
+    
+    if coinl:
+        coinvl = get_price(','.join(coinl))
+        coinchg = get_change(','.join(coinl))
+    
+    stdscr.erase()
     '''Write text and formatting to screen'''
     first_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10 - 3)
     second_pad = ' ' * (CONFIG['theme'].getint('field_length', 13) - 2)
     third_pad =  ' ' * (CONFIG['theme'].getint('field_length', 13) - 3)
+    last_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10 - 6)
 
     if y >= 1:
         stdscr.addnstr(0, 0, CRYPTOP_VERSION, x, curses.color_pair(2))
     if y >= 2:
-        header = '  COIN{}PRICE{}HELD {}VAL{}HIGH {}LOW  '.format(first_pad, second_pad, third_pad, first_pad, first_pad)
+        header = '  COIN{}PRICE{}HELD {}VAL{}HIGH {}LOW {}CHANGE   '.format(first_pad, second_pad, third_pad, first_pad, first_pad, last_pad)
         stdscr.addnstr(1, 0, header, x, curses.color_pair(3))
 
     total = 0
     coinl = list(wallet.keys())
     heldl = list(wallet.values())
-    if coinl:
-        coinvl = get_price(','.join(coinl))
-
+    if coinvl and coinchg:
+        
         if y > 3:
             s = sorted(list(zip(coinl, coinvl, heldl)), key=SORT_FNS[SORTS[COLUMN]], reverse=ORDER)
             coinl = list(x[0] for x in s)
@@ -165,16 +213,31 @@ def write_scr(stdscr, wallet, y, x):
             for coin, val, held in zip(coinl, coinvl, heldl):
                 if coinl.index(coin) + 2 < y:
                     stdscr.addnstr(coinl.index(coin) + 2, 0,
-                    str_formatter(coin, val, held), x, curses.color_pair(2))
+                    str_formatter(coin, val, held,coinchg[coin]), x, curses.color_pair(2))
                 total += float(held) * val[0]
-
-    if y > len(coinl) + 3:
+                
+        for coin, val, held in zip(coinl, coinvl, heldl):
+            #coin_distribution[coin] = float((float(held) * val[0])/total)
+            portfolio_pct = float((float(held) * val[0])/total)
+            char_distribution[coin] = int(portfolio_pct*x)
+            coin_distribution[coin] = round(portfolio_pct*100,2)
+            
+    if y > len(coinl)*2 + 3:
+        k = 0
+        j = 3 
+        for ckey in char_distribution.keys():
+            if j % 10 == 0:
+                j = 3;  
+            stdscr.addnstr(y - len(coinl) - 4 + k,0, ckey  + ' '*(4 - len(ckey))+ charcar*char_distribution[ckey],x,curses.color_pair(j))
+            stdscr.addstr(str(coin_distribution[ckey]) + '%', curses.color_pair(2))
+            k += 1
+            j += 1
         stdscr.addnstr(y - 3, 0, 'Total Holdings: {:10}    '
             .format(locale.currency(total, grouping=True)), x, curses.color_pair(3))
         stdscr.addnstr(y - 2, 0,
             '[F5]Refresh [A] Add/update coin [R] Remove coin [S] Sort [C] Cycle sort [0\Q]Exit', x,
             curses.color_pair(2))
-        stdscr.addnstr(y-1,0, '[+]Add To Coin [-] Subtract From Coin',x,curses.color_pair(2))
+        stdscr.addnstr(y - 1,0, '[+]Add To Coin [-] Subtract From Coin',x,curses.color_pair(2))
 
 def read_wallet():
     ''' Reads the wallet data from its json file '''
@@ -262,6 +325,7 @@ def mainc(stdscr):
     conf_scr()
     stdscr.bkgd(' ', curses.color_pair(2))
     stdscr.clear()
+    message = "REFRESHING ⟳"
     #stdscr.nodelay(1)
     # while inp != 48 and inp != 27 and inp != 81 and inp != 113:
     k = 1
@@ -278,7 +342,9 @@ def mainc(stdscr):
         y, x = stdscr.getmaxyx()
         if inp == KEY_F5:
             try:
-                stdscr.erase()
+                stdscr.addstr(int(y/2)-1, int(x/2) - int(len(message)),
+                               message, curses.color_pair(3)|curses.A_BOLD)
+                stdscr.refresh()
                 write_scr(stdscr, wallet, y, x)
             except curses.error:
                 pass
@@ -306,6 +372,7 @@ def mainc(stdscr):
                     'Enter in format Symbol,Amount e.g. BTC,10')
                 wallet = add_coin(data, wallet)
                 write_wallet(wallet)
+                write_scr(stdscr, wallet, y, x)
 
         if inp in {KEY_r, KEY_R}:
             if y > 2:
@@ -313,6 +380,7 @@ def mainc(stdscr):
                     'Enter the symbol of coin to be removed, e.g. BTC')
                 wallet = remove_coin(data, wallet)
                 write_wallet(wallet)
+                write_scr(stdscr, wallet, y, x)
 
         if inp in {KEY_s, KEY_S}:
             if y > 2:
