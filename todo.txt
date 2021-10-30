@@ -1,1 +1,4 @@
-- sort
+- MarketCap
+- Change in initial value (+/-)
+- Chnage abrupt exits on error requests
+

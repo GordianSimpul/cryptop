@@ -12,13 +12,14 @@ import requests
 import requests_cache
 from curses import KEY_F5
 import argparse
+
 # GLOBALS!
 BASEDIR = os.path.join(os.path.expanduser('~'), '.cryptop')
 DATAFILE = os.path.join(BASEDIR, 'wallet.json')
 CONFFILE = os.path.join(BASEDIR, 'config.ini')
 CONFIG = configparser.ConfigParser()
 COIN_FORMAT = re.compile('[A-Z]{2,5},\d{0,}\.?\d{0,}')
-CRYPTOP_VERSION = 'cryptop v0.4.1'
+CRYPTOP_VERSION = 'cryptop v0.4.2'
 CCOMPARE_API_KEY = ''
 
 SORT_FNS = { 'coin' : lambda item: item[0],
@@ -107,26 +108,28 @@ def get_change(coin, curr="USD"):
     
     coin_change_amt = {}
     # Minute Change
-    cc_change_url = 'https://min-api.cryptocompare.com/data/v2/histominute?fsym=%s&tsym=%s&limit=1440'
+    #cc_change_url = 'https://min-api.cryptocompare.com/data/v2/histominute?fsym=%s&tsym=%s&limit=1440'
     # Hour Change
     #cc_change_url = 'https://min-api.cryptocompare.com/data/v2/histohour?fsym=%s&tsym=%s&limit=24'
+    cc_change_url = 'https://min-api.cryptocompare.com/data/pricemultifull?fsyms=%s&tsyms=%s&api_key=%s' 
     curr = curr or CONFIG['api'].get('currency', 'USD')
-    for c in coin.split(','):
-        try:
-            req = requests.get(cc_change_url % (c, curr))
-        except requests.exceptions.RequestException:
-            sys.exit('Could not complete request')
-        
+    curr = curr.upper()
+    try:
+        req = requests.get(cc_change_url % (coin, curr,CCOMPARE_API_KEY))
         hdata = req.json()
-        open_price = hdata['Data']['Data'][0]['open']
-        now_price = hdata['Data']['Data'][-1]['open']
-        coin_change_amt[c] = round(((float(now_price) - float(open_price)) / float(open_price))*100,2)
+    except requests.exceptions.RequestException:
+        for c in coin.split(','):
+            coin_change_amt[c] = 0.0
+        return coin_change_amt
+    
+    for c in coin.split(','):
+        coin_change_amt[c] = round(float(hdata['RAW'][c][curr]["CHANGEPCT24HOUR"]),2)
         if coin_change_amt[c] > 0: 
             coin_change_amt[c] = '+' + str(coin_change_amt[c]) + "%"
         else:
             coin_change_amt[c] = str(coin_change_amt[c]) + "%"
     return coin_change_amt
-
+    
 def get_theme_colors():
     ''' Returns curses colors according to the config'''
     def get_curses_color(name_or_value):

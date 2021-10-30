@@ -5,7 +5,7 @@ Built on Python 3 and ncurses with simplicity in mind, cryptop updates in realti
 
 .. image:: img\cryptop.png
 
-version 0.4.1
+version 0.4.2
 
 Changes
 ------------
@@ -34,7 +34,8 @@ Then install cryptop through pip
 
 .. code:: bash
 
-    pip3 install -e cryptop .
+    cd cryptop
+    pip3 install -e .
 
 cryptop can be installed manually, download the repo and run
 
