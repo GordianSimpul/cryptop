@@ -5,18 +5,35 @@ Built on Python 3 and ncurses with simplicity in mind, cryptop updates in realti
 
 .. image:: img\cryptop.png
 
-version 0.4.2
+version 1.0.0
 
 Changes
 ------------
 
-Added the ability to add/subtract values from your wallet within the interface. 
+This now requires a CryptoCompare.com and CoinMarketCap.com API key because of rate limits and extra data points.
 
-This now requires a CryptoCompare.com API key because of rate limits. See the Credits section.
+See the Credits section on how to get an API key.
 
-No longer auto refresh. Press 'F5' to refresh. 
+Added option for extra decimal places in .cryptop/config.ini based on currency.locale
 
-Horizontal bar graph with portfolio percent. 
+Fixed + add coin user error to just add coin instead of error.
+
+Added Market Cap from CoinMarketCap. API required.
+
+Reads wallet every refresh and entry. Enables cryptop to be run on multiple computers from within a sharedrive.
+
+Less url requests. Coin list is fetched every 10 days, instead of 
+every coin addition. Speeds up processing of app.
+
+
+TODO
+------------
+
+* Instead of using CC for 24h +/-, data already fetched from CMC in quote. Use CMC quote data for less requests.
+* Add average price paid within wallet. Requires an addition "history" wallet.
+* More historical portfolio changes.
+* Coin Value +/- with mrkt conditions.
+* History interface to interact with coin additions / subtractions.
 
 
 Installation
@@ -54,28 +71,40 @@ Start from a terminal.
 
 .. code:: bash
 
-    cryptop [-k api_key]
+    cryptop [-k api_key] [-l api_key]
 
-Follow the on screen instructions to add/remove cryptocurrencies from your portfolio or add/subtract values from your current wallet. The api_key option is only necessary if you didn't specify it in the .crypto/config.ini file
+Follow the on screen instructions to add/remove or add/subtract values from your current wallet. The api_key options are only necessary if you didn't specify it in the .cryptop/config.ini file.
+
+.cryptop/config.ini
+
+key=CryptoComare API KEY
+key2=CoinMarketCap API KEY
+
+Both of those need to edited o/w cryptop will not work.
 
 Customisation
 -------------
 
 Cryptop creates two config files in a .cryptop folder in your home directory.
 
-.crypto/config.ini contains theme configuration (text/background colors) and
+.cryptop/config.ini contains theme configuration (text/background colors) and
 options to change the output currency (default USD), update frequency, number of decimal places to display and maximum width for float values.
 
 .cryptop/wallet.json contains the coins and amounts you hold, you shouldn't need to edit it manually
 
-Credits
--------
+Credits / API
+-------------
+
+Both are FREE.
 
 Uses the `cryptocompare.com API
 <http://www.cryptocompare.com/>`_.
 
+Uses the `coinmarketcap.com API
+<https://coinmarketcap.com/api>`_.
+
 Tipjar
-------
+-------------
 
 Help me reach my goal of contributing to the ongoing development of privacy coins
 
@@ -85,7 +114,13 @@ Help me reach my goal of contributing to the ongoing development of privacy coin
 
 .. code:: bash
 
+    DERO: dERoNwMa3wEdMgG8bswFVzcjTqcBSicwGT8YQAeYkYrJ2ZAVZhp5uDqYayeaCehTUn8yWUmjnzxX95KY6pK6gSuj4qDevpJnDa
+
+.. code:: bash
+
     BTC: bc1qvfsqzfz4gud05p7mmgm7kwv6cx7p4k7tcd5sdn
+
+
 
 Disclaimer
 ----------

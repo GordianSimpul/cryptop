@@ -12,16 +12,25 @@ import requests
 import requests_cache
 from curses import KEY_F5
 import argparse
+import time
+from sys import stdout
+from apt_pkg import TIME
 
 # GLOBALS!
 BASEDIR = os.path.join(os.path.expanduser('~'), '.cryptop')
+COINLIST = os.path.join(BASEDIR, 'coinlist.json')
+STARTFILE = os.path.join(BASEDIR, 'startvalue.json')
 DATAFILE = os.path.join(BASEDIR, 'wallet.json')
+PORTFILE = os.path.join(BASEDIR, 'wallet_delta.json')
 CONFFILE = os.path.join(BASEDIR, 'config.ini')
 CONFIG = configparser.ConfigParser()
-COIN_FORMAT = re.compile('[A-Z]{2,5},\d{0,}\.?\d{0,}')
-CRYPTOP_VERSION = 'cryptop v0.4.2'
+COIN_FORMAT = re.compile('[A-Z]{2,7},\d{0,}\.?\d{0,}')
+CRYPTOP_VERSION = 'cryptop v1.0.0'
 CCOMPARE_API_KEY = ''
-
+CMC_API_KEY = ''
+CMCQuote="https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=%s" 
+CMCPriceChange="https://pro-api.coinmarketcap.com/v1/cryptocurrency/price-performance-stats/latest?symbole=%s&CMC_PRO_API_KEY=%s"
+cmcqJSON = {} #CMC Quote, keep global so less requests to servers 
 SORT_FNS = { 'coin' : lambda item: item[0],
              'price': lambda item: float(item[1][0]),
              'held' : lambda item: float(item[2]),
@@ -63,54 +72,82 @@ def read_configuration(confpath):
     return CONFIG
 
 
-def if_coin(coin, url='https://www.cryptocompare.com/api/data/coinlist/'):
-    '''Check if coin exists'''
-    return coin in requests.get(url).json()['Data']
+def get_coin_list():
+    global CMC_API_KEY
+    cmc_coin_list_url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/map?CMC_PRO_API_KEY=%s" % CMC_API_KEY
+    
+    def inner():
+        coinJSON = requests.get(cmc_coin_list_url)
+        data = coinJSON.content
+        with open(COINLIST, 'wb') as f:
+            f.write(data)
+    
+    if os.path.exists(COINLIST):
+        days = 10
+        file_time = os.path.getmtime(COINLIST)
+        if ((time.time() - file_time) / 3600 > 24*days):
+            inner()
+    else:
+        inner()
+    
+    return
+        
+    
 
+def if_coin(coin, url='https://www.cryptocompare.com/api/data/coinlist/'):
+    
+    '''Check if coin exists'''
+    get_coin_list()
+    
+    with open(COINLIST, 'rb') as f:
+        data = f.read()
+    
+    coin_list = json.loads(data) 
+    
+    for c in coin_list['data']:
+        if coin in c['symbol']:
+            return coin
+    return 
 
 def get_price(coin, curr=None):
     '''Get the data on coins'''
-    curr = curr or CONFIG['api'].get('currency', 'USD')
-    fmt = 'https://min-api.cryptocompare.com/data/pricemultifull?fsyms={}&tsyms={}&api_key=%s' % CCOMPARE_API_KEY
+    global CCOMPARE_API_KEY
+    global CMC_API_KEY
     
-    #Get data from KuCoin. Some Coins not Listed, show 0 if null.
-    #USDT is needed since there is no USD pairs
-    #curr = 'USDT' 
-    '''
-    ku_url = "https://api.kucoin.com/api/v1/market/stats?symbol=%s-%s"
-    AllCoinData = []
-    try: 
-        for c in coin.split(','):
-            r = requests.get(ku_url % (c,curr))
-            data = r.json()
-            coin_data = (float(data['data']['averagePrice'] if data['data']['averagePrice'] else 0.0),
-                         float(data['data']['high'] if data['data']['high'] else 0.0),
-                         float(data['data']['low'] if data['data']['low'] else 0.0))
-            AllCoinData.append(coin_data)
-        return AllCoinData
-    except Exception as e:
-        sys.exit(str(e))    
-    '''
+    headers_dict = {'X-CMC_PRO_API_KEY' : "%s" % CMC_API_KEY}
+    curr = curr or CONFIG['api'].get('currency', 'USD')
+    cc_price_list = 'https://min-api.cryptocompare.com/data/pricemultifull?fsyms={}&tsyms={}&api_key=%s' % CCOMPARE_API_KEY
+    price_matrix = []
     try:
-        r = requests.get(fmt.format(coin, curr))
+        r = requests.get(cc_price_list.format(coin, curr))
+        cmcq_r = requests.get(CMCQuote % coin, headers=headers_dict)
+        
     except requests.exceptions.RequestException:
-        sys.exit('Could not complete request')
+        return price_matrix
     
     try:
         data_raw = r.json()['RAW']
-        return [(float(data_raw[c][curr]['PRICE']),
+        global cmcqJSON
+        cmcqJSON = cmcq_r.json()
+        
+        for c in coin.split(','):
+            if c in data_raw.keys():
+                price_matrix.append((float(data_raw[c][curr]['PRICE']),
                  float(data_raw[c][curr]['HIGH24HOUR']),
-                 float(data_raw[c][curr]['LOW24HOUR'])) for c in coin.split(',') if c in data_raw.keys()]
-    except:
-        sys.exit('Could not parse data')
+                 float(data_raw[c][curr]['LOW24HOUR'])))
+            else:
+                price_matrix.append((float(cmcqJSON['data'][c.upper()]['quote'][curr]['price']),
+                                     float(0.0), float(0.0)))
+        return price_matrix
+    except Exception as e:
+        sys.exit('Could not parse data: %s' % str(e))
     
 def get_change(coin, curr="USD"):
     
+    global cmcqJSON
+    global CCOMPARE_API_KEY
+    global CMC_API_KEY
     coin_change_amt = {}
-    # Minute Change
-    #cc_change_url = 'https://min-api.cryptocompare.com/data/v2/histominute?fsym=%s&tsym=%s&limit=1440'
-    # Hour Change
-    #cc_change_url = 'https://min-api.cryptocompare.com/data/v2/histohour?fsym=%s&tsym=%s&limit=24'
     cc_change_url = 'https://min-api.cryptocompare.com/data/pricemultifull?fsyms=%s&tsyms=%s&api_key=%s' 
     curr = curr or CONFIG['api'].get('currency', 'USD')
     curr = curr.upper()
@@ -123,7 +160,10 @@ def get_change(coin, curr="USD"):
         return coin_change_amt
     
     for c in coin.split(','):
-        coin_change_amt[c] = round(float(hdata['RAW'][c][curr]["CHANGEPCT24HOUR"]),2)
+        if c in hdata['RAW'].keys():
+            coin_change_amt[c] = round(float(hdata['RAW'][c][curr]["CHANGEPCT24HOUR"]),2)
+        else: 
+            coin_change_amt[c] = round(float(cmcqJSON['data'][c]['quote'][curr]["percent_change_24h"]),2)
         if coin_change_amt[c] > 0: 
             coin_change_amt[c] = '+' + str(coin_change_amt[c]) + "%"
         else:
@@ -161,21 +201,63 @@ def conf_scr():
         
     
     curses.halfdelay(10)
+    
+def mkcap_format(mkcap):
+    mkcap = str(mkcap).split('.')[0]
+    mkcaplen = len(mkcap)
+    
+    if mkcaplen== 4:
+        mkcap = mkcap[0] + '.' +  mkcap[1:3] + "K"
+        
+    elif mkcaplen== 5:
+        mkcap = mkcap[0:2] + '.' +  mkcap[2:4] + "K"
+        
+    elif mkcaplen== 6:
+        mkcap = mkcap[0:3] + '.' +  mkcap[3:5] + "K"
+        
+    elif mkcaplen== 7:
+        mkcap = mkcap[0] + '.' +  mkcap[1:3] + "M"
+        
+    elif mkcaplen== 8:
+        mkcap = mkcap[0:2] + '.' +  mkcap[2:4] + "M"
+        
+    elif mkcaplen== 9:
+        mkcap = mkcap[0:3] + '.' +  mkcap[3:5] + "M"
+        
+    elif mkcaplen== 10:
+        mkcap = mkcap[0] + '.' +  mkcap[1:3] + "B"
+        
+    elif mkcaplen== 11:
+        mkcap = mkcap[0:2] + '.' +  mkcap[2:4] + "B"
+        
+    elif mkcaplen== 12:
+        mkcap = mkcap[0:3] + '.' +  mkcap[3:5] + "B"
+        
+    elif mkcaplen== 13:
+        mkcap = mkcap[0] + '.' +  mkcap[1:3] + "T"
+            
+    else:
+        print(mkcap)
+    return mkcap
+            
+    
 
-def str_formatter(coin, val, held, change):
+def str_formatter(coin, val, held, change,mkcap):
     '''Prepare the coin strings as per ini length/decimal place values'''
+    locale._override_localeconv = {'frac_digits':CONFIG['theme'].getint('dec_places', 2)}
     max_length = CONFIG['theme'].getint('field_length', 13)
-    dec_place = CONFIG['theme'].getint('dec_places', 2)
+    dec_place = CONFIG['theme'].getint('dec_places', 3)
     avg_length = CONFIG['theme'].getint('dec_places', 2) + 10
     held_str = '{:>{},.8f}'.format(float(held), max_length)
     val_str = '{:>{},.{}f}'.format(float(held) * val[0], max_length, dec_place)
-    return '  {:<5} {:>{}}  {} {:>{}} {:>{}} {:>{}} {:>{}}'.format(coin,
-        locale.currency(val[0], grouping=True)[:max_length], avg_length,
-        held_str[:max_length],
+    return '  {:<7} {:>{}}  {:>{}}  {:>{}} {:>{}} {:>{}} {:>{}} {:>{}}'.format(coin,
+        locale.currency(val[0], grouping=True)[:max_length], avg_length+1,
+        held_str[:max_length], max_length + 3,
         locale.currency(float(held) * val[0], grouping=True)[:max_length], avg_length,
         locale.currency(val[1], grouping=True)[:max_length], avg_length,
         locale.currency(val[2], grouping=True)[:max_length], avg_length,
-        change[:max_length], avg_length)
+        change[:max_length], avg_length,
+        mkcap_format(mkcap),avg_length)
 
 def write_scr(stdscr, wallet, y, x):
 
@@ -195,15 +277,18 @@ def write_scr(stdscr, wallet, y, x):
     
     stdscr.erase()
     '''Write text and formatting to screen'''
-    first_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10 - 3)
+    first_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10)
     second_pad = ' ' * (CONFIG['theme'].getint('field_length', 13) - 2)
-    third_pad =  ' ' * (CONFIG['theme'].getint('field_length', 13) - 3)
-    last_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10 - 6)
-
+    third_pad =  ' ' * (CONFIG['theme'].getint('field_length', 13))
+    fourth_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10 - 2)
+    fifth_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10 - 3)
+    last_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10 - 5)
+    tlast_pad = '{:>{}}'.format('', CONFIG['theme'].getint('dec_places', 2) + 10 - 5)
+    
     if y >= 1:
         stdscr.addnstr(0, 0, CRYPTOP_VERSION, x, curses.color_pair(2))
     if y >= 2:
-        header = '  COIN{}PRICE{}HELD {}VAL{}HIGH {}LOW {}CHANGE   '.format(first_pad, second_pad, third_pad, first_pad, first_pad, last_pad)
+        header = '  COIN{}PRICE{}HELD {}VAL{}HIGH {}LOW {}CHANGE {}MKCAP   '.format(first_pad, second_pad, third_pad, fourth_pad, fifth_pad, last_pad, tlast_pad)
         stdscr.addnstr(1, 0, header, x, curses.color_pair(3))
 
     total = 0
@@ -219,7 +304,7 @@ def write_scr(stdscr, wallet, y, x):
             for coin, val, held in zip(coinl, coinvl, heldl):
                 if coinl.index(coin) + 2 < y:
                     stdscr.addnstr(coinl.index(coin) + 2, 0,
-                    str_formatter(coin, val, held,coinchg[coin]), x, curses.color_pair(2))
+                    str_formatter(coin, val, held,coinchg[coin],float(cmcqJSON['data'][coin]['quote']['USD']['market_cap'])), x, curses.color_pair(2))
                 total += float(held) * val[0]
                 
         for coin, val, held in zip(coinl, coinvl, heldl):
@@ -243,7 +328,14 @@ def write_scr(stdscr, wallet, y, x):
         stdscr.addnstr(y - 2, 0,
             '[F5]Refresh [A] Add/update coin [R] Remove coin [S] Sort [C] Cycle sort [0\Q]Exit', x,
             curses.color_pair(2))
-        stdscr.addnstr(y - 1,0, '[+]Add To Coin [-] Subtract From Coin',x,curses.color_pair(2))
+        stdscr.addnstr(y - 1,0, '[+] Add To Coin [-] Subtract From Coin',x,curses.color_pair(2))
+
+def init_wallet_delta(wallet):
+    coinl = list(wallet.keys())
+    heldl = list(wallet.values())
+    
+    if coinl:
+        coinvl = get_price(','.join(coinl))
 
 def read_wallet():
     ''' Reads the wallet data from its json file '''
@@ -252,11 +344,26 @@ def read_wallet():
             return json.load(f)
     except (FileNotFoundError, ValueError):
         # missing or malformed wallet
-        write_wallet({})
+        write_wallet({}, DATAFILE)
         return {}
 
-
-def write_wallet(wallet):
+def read_wallet_delta():
+    try:
+        with open(PORTFILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, ValueError):
+        return {}
+    '''
+        # missing or malformed wallet
+        if os.path.exists(DATAFILE):
+            wallet_delta = read_wallet()
+            write_wallet(wallet_delta,PORTFILE)
+            return wallet_delta
+        else:
+            return {}
+    '''
+        
+def write_wallet(wallet, DATAFILE):
     ''' Write wallet data to its json file '''
     with open(DATAFILE, 'w') as f:
         json.dump(wallet, f)
@@ -306,14 +413,16 @@ def change_value_to_coin(coin_amount, wallet, subtract):
 
     if not amount:
         amount = "0"
-        
-    if subtract:
-        if float(wallet[coin]) >= float(amount):
-            wallet[coin] = float(wallet[coin]) - float(amount)
+    if coin in wallet.keys():    
+        if subtract:
+            if float(wallet[coin]) >= float(amount):
+                wallet[coin] = float(wallet[coin]) - float(amount)
+            else:
+                wallet[coin] = 0
         else:
-            wallet[coin] = 0
+            wallet[coin] = float(wallet[coin]) + float(amount)
     else:
-        wallet[coin] = float(wallet[coin]) + float(amount)
+        wallet[coin] = float(amount)
     return wallet
 
 def remove_coin(coin, wallet):
@@ -348,6 +457,7 @@ def mainc(stdscr):
         y, x = stdscr.getmaxyx()
         if inp == KEY_F5:
             try:
+                wallet = read_wallet()
                 stdscr.addstr(int(y/2)-1, int(x/2) - int(len(message)),
                                message, curses.color_pair(3)|curses.A_BOLD)
                 stdscr.refresh()
@@ -358,8 +468,9 @@ def mainc(stdscr):
             if y > 2:
                 data = get_string(stdscr,
                         'Enter in format Symbol,Amount e.g. BTC,10')
+                wallet = read_wallet()
                 wallet = change_value_to_coin(data,wallet, False)
-                write_wallet(wallet)
+                write_wallet(wallet,DATAFILE)
                 stdscr.erase()
                 write_scr(stdscr, wallet, y, x)
 
@@ -367,8 +478,9 @@ def mainc(stdscr):
             if y > 2:
                 data = get_string(stdscr,
                         'Enter in format Symbol,Amount e.g. BTC,10')
+                wallet = read_wallet()
                 wallet = change_value_to_coin(data,wallet, True)
-                write_wallet(wallet)
+                write_wallet(wallet,DATAFILE)
                 stdscr.erase()
                 write_scr(stdscr, wallet, y, x)
 
@@ -376,16 +488,18 @@ def mainc(stdscr):
             if y > 2:
                 data = get_string(stdscr,
                     'Enter in format Symbol,Amount e.g. BTC,10')
+                wallet = read_wallet()
                 wallet = add_coin(data, wallet)
-                write_wallet(wallet)
+                write_wallet(wallet, DATAFILE)
                 write_scr(stdscr, wallet, y, x)
 
         if inp in {KEY_r, KEY_R}:
             if y > 2:
                 data = get_string(stdscr,
                     'Enter the symbol of coin to be removed, e.g. BTC')
+                wallet = read_wallet()
                 wallet = remove_coin(data, wallet)
-                write_wallet(wallet)
+                write_wallet(wallet, DATAFILE)
                 write_scr(stdscr, wallet, y, x)
 
         if inp in {KEY_s, KEY_S}:
@@ -411,15 +525,28 @@ def main():
         expire_after=int(CONFIG['api'].get('cache', 10)))
 
     parser = argparse.ArgumentParser(description=CRYPTOP_VERSION)
-    parser.add_argument('-k', '--api-key', default=os.environ.get('CCOMPARE_API_KEY'),help='CryptoCompare API key (OR edit config.ini in ~/.cryptop folder)')
+    parser.add_argument('-k', '--cc-api-key', default=os.environ.get('CCOMPARE_API_KEY'),help='CryptoCompare API key (key) (OR edit config.ini in ~/.cryptop folder)')
+    parser.add_argument('-l', '--cmc-api-key', default=os.environ.get('CMC_API_KEY'),help='CoinMarketCap API key (key2) (OR edit config.ini in ~/.cryptop folder)')
+    global CCOMPARE_API_KEY
+    global CMC_API_KEY
     CCOMPARE_API_KEY = CONFIG['api'].get('key', '')
+    CMC_API_KEY      = CONFIG['api'].get('key2', '')
     
     args = parser.parse_args()
-    if not args.api_key and not CCOMPARE_API_KEY:
-        parser.error('Please specify an API key')
-    elif args.api_key and not CCOMPARE_API_KEY:
-        CCOMPARE_API_KEY = args.api_key
-        
+    
+    if not args.cc_api_key and not CCOMPARE_API_KEY:
+        parser.error('Please specify an API key for CryptoCompare')
+    
+    if not args.cmc_api_key and not CMC_API_KEY:
+        parser.error('Please Specify an API key for CoinMarketCap')
+    
+    if args.cc_api_key and not CCOMPARE_API_KEY:
+        CCOMPARE_API_KEY = args.cc_api_key
+    
+    if args.cmc_api_key and not CMC_API_KEY:
+        CMC_API_KEY = args.cmc_api_key
+    
+    get_coin_list()
     curses.wrapper(mainc)
 
 
